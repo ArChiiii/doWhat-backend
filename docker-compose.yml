@@ -1,0 +1,128 @@
+version: '3.9'
+
+services:
+  # FastAPI Backend API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dowhat-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - EVENTBRITE_API_KEY=${EVENTBRITE_API_KEY}
+      - MIXPANEL_TOKEN=${MIXPANEL_TOKEN}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - ENVIRONMENT=development
+      - DEBUG=true
+    volumes:
+      - ./app:/app/app
+      - ./scrapers:/app/scrapers
+      - ./jobs:/app/jobs
+    depends_on:
+      - redis
+    networks:
+      - dowhat-network
+    restart: unless-stopped
+
+  # Redis for caching and RQ job queue
+  redis:
+    image: redis:7-alpine
+    container_name: dowhat-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - dowhat-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RQ Worker for background jobs (scrapers)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dowhat-worker
+    command: python jobs/worker.py
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - REDIS_URL=redis://redis:6379
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - EVENTBRITE_API_KEY=${EVENTBRITE_API_KEY}
+      - ENVIRONMENT=development
+      - DEBUG=true
+    volumes:
+      - ./app:/app/app
+      - ./scrapers:/app/scrapers
+      - ./jobs:/app/jobs
+    depends_on:
+      - redis
+    networks:
+      - dowhat-network
+    restart: unless-stopped
+
+  # RQ Scheduler for cron jobs
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dowhat-scheduler
+    command: python jobs/scheduler.py
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=development
+      - DEBUG=true
+    volumes:
+      - ./jobs:/app/jobs
+    depends_on:
+      - redis
+    networks:
+      - dowhat-network
+    restart: unless-stopped
+
+  # Redis Commander (GUI for Redis - Development only)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: dowhat-redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - dowhat-network
+    profiles:
+      - dev-tools
+
+networks:
+  dowhat-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+
