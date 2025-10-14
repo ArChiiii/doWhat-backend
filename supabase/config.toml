@@ -1,0 +1,46 @@
+# Supabase CLI Configuration
+# This file is used for local development with Supabase CLI
+
+project_id = "yjsmgjrgqhhwuvnolzmf"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:19006"]
+jwt_expiry = 900
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+# Google OAuth provider (configure when ready)
+# [[auth.external.google]]
+# enabled = false
+# client_id = "your-client-id"
+# secret = "your-client-secret"
