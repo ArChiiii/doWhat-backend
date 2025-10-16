@@ -9,7 +9,7 @@ alembic==1.13.2
 psycopg2-binary==2.9.9
 
 # Supabase
-supabase>=2.7.0,<3.0.0
+supabase==2.6.0
 
 # Redis and Job Queue
 redis==5.0.8

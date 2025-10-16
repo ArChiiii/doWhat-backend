@@ -37,12 +37,26 @@ make up
 docker-compose up -d
 ```
 
-5. **Run database migrations**
-```bash
-make db-migrate
+5. **Set up Supabase and run database migrations**
 
-# Or using Docker Compose
-docker-compose exec api alembic upgrade head
+**Important**: This project uses **Supabase CLI** for migrations, not Alembic.
+
+First, set up your Supabase project following the [Supabase Setup Guide](./docs/SUPABASE_SETUP.md).
+
+Then, run migrations:
+
+```bash
+# Install Supabase CLI (if not already installed)
+npm install -g supabase
+
+# Link to your Supabase project
+supabase link --project-ref your-project-ref
+
+# Push migrations to Supabase
+supabase db push
+
+# Or run migrations manually in Supabase Dashboard > SQL Editor
+# Copy contents of supabase/migrations/*.sql files
 ```
 
 6. **Access the application**
@@ -88,7 +102,9 @@ backend/
 │   ├── scheduler.py           # Job scheduler
 │   ├── scraper_job.py         # Scraper jobs
 │   └── cleanup_job.py         # Cleanup jobs
-├── alembic/                   # Database migrations
+├── supabase/                  # Supabase migrations and config
+│   ├── migrations/            # SQL migration files
+│   └── config.toml            # Supabase CLI config
 ├── tests/                     # Test suite
 ├── Dockerfile                 # Production Dockerfile
 ├── Dockerfile.dev             # Development Dockerfile
@@ -97,6 +113,58 @@ backend/
 ├── requirements.txt           # Python dependencies
 └── Makefile                   # Convenience commands
 ```
+
+## 🔐 Authentication
+
+The doWhat API uses **JWT (JSON Web Tokens)** with **Supabase Auth** for user authentication.
+
+### Features
+- Email/Password registration and login
+- Google OAuth (optional)
+- JWT access tokens (15 min expiry)
+- Refresh tokens (30 day expiry)
+- Secure token storage with Expo SecureStore (mobile)
+
+### Quick Start
+
+**Register a new user:**
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "SecurePass123!"}'
+```
+
+**Login:**
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "SecurePass123!"}'
+```
+
+**Access protected endpoint:**
+```bash
+curl http://localhost:8000/api/v1/users/me \
+  -H "Authorization: Bearer <access_token>"
+```
+
+**Refresh access token:**
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/refresh \
+  -H "Authorization: Bearer <refresh_token>"
+```
+
+### Documentation
+- [Authentication Guide](./docs/AUTHENTICATION.md) - Complete authentication implementation guide
+- [Supabase Setup](./docs/SUPABASE_SETUP.md) - Database and auth configuration
+
+### API Endpoints
+- `POST /api/v1/auth/register` - Register new user
+- `POST /api/v1/auth/login` - Login with email/password
+- `POST /api/v1/auth/google` - Login with Google OAuth
+- `POST /api/v1/auth/refresh` - Refresh access token
+- `GET /api/v1/auth/me` - Get current user info (requires auth)
+
+See full API documentation at http://localhost:8000/docs
 
 ## 🐳 Docker Services
 
@@ -125,33 +193,38 @@ backend/
 
 ## 🗄️ Database Migrations
 
-### Create a new migration
-```bash
-make db-migrate-create MESSAGE="add user preferences table"
+**Important**: This project uses **Supabase CLI** for migrations, not Alembic.
 
-# Or
-docker-compose exec api alembic revision --autogenerate -m "add user preferences table"
-```
+See [Supabase Setup Guide](./docs/SUPABASE_SETUP.md) for detailed instructions.
 
 ### Apply migrations
 ```bash
-make db-migrate
+# Push all migrations to Supabase
+supabase db push
 
-# Or
-docker-compose exec api alembic upgrade head
+# Or run manually in Supabase Dashboard > SQL Editor
+# Copy contents of supabase/migrations/*.sql files
 ```
 
-### Rollback migration
+### View migration status
 ```bash
-make db-downgrade
-
-# Or
-docker-compose exec api alembic downgrade -1
+supabase migration list
 ```
 
-### Reset database (WARNING: destroys all data)
+### Create a new migration
 ```bash
-make db-reset
+# Create empty migration file
+supabase migration new your_migration_name
+
+# Edit the file in supabase/migrations/
+# Add your SQL statements
+```
+
+### Rollback (development only)
+```bash
+# WARNING: This will drop all tables and data
+# Run the rollback migration in Supabase SQL Editor
+# File: supabase/migrations/20251014999999_rollback_all.sql
 ```
 
 ## 🧪 Testing
