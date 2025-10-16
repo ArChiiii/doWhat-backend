@@ -2,6 +2,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings
+from sqlalchemy import text
+from app.routers import auth_router
 import time
 from datetime import datetime
 
@@ -22,6 +24,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(auth_router)
 
 
 # Request timing middleware
@@ -66,7 +71,7 @@ async def health_check():
         from app.database import engine
 
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         health_status["database"] = "connected"
     except Exception as e:
         health_status["database"] = f"error: {str(e)}"
@@ -109,7 +114,9 @@ async def not_found_handler(request: Request, exc):
         status_code=404,
         content={
             "error": "Not Found",
-            "message": f"The requested resource '{request.url.path}' was not found",
+            "message": (
+                "The requested resource '" + str(request.url.path) + "' was not found"
+            ),
             "path": request.url.path,
         },
     )
