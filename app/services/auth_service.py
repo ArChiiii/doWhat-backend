@@ -29,8 +29,8 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class AuthService:
     """
-    Authentication service handling user registration, login, and token management.
-    Integrates with Supabase Auth for OAuth and token verification.
+    Authentication service handling user registration, login, and token
+    management. Integrates with Supabase Auth for OAuth and token verification.
     """
 
     def __init__(self):
@@ -151,16 +151,22 @@ class AuthService:
             if payload.get("type") != token_type:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=f"Invalid token type. Expected {token_type}",
+                    detail={
+                        "error": "invalid_token",
+                        "message": f"Invalid token type. Expected {token_type}",
+                    },
                     headers={"WWW-Authenticate": "Bearer"},
                 )
 
             return payload
 
-        except JWTError as e:
+        except JWTError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Invalid or expired token: {str(e)}",
+                detail={
+                    "error": "invalid_token",
+                    "message": "Invalid or expired token",
+                },
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -186,11 +192,13 @@ class AuthService:
         """
         # Check if user already exists
         existing_user = db.query(User).filter(User.email == request.email).first()
-        print("existing_user", existing_user)
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Email already registered",
+                detail={
+                    "error": "email_exists",
+                    "message": "An account with this email already exists",
+                },
             )
 
         # Use Supabase Auth if available, otherwise create user directly
@@ -206,7 +214,10 @@ class AuthService:
                 if not auth_response.user:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Failed to create user with Supabase Auth",
+                        detail={
+                            "error": "registration_failed",
+                            "message": "Failed to create user account. Please try again.",
+                        },
                     )
 
                 # Create user record in our database
@@ -236,11 +247,14 @@ class AuthService:
                     expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
                 )
 
-            except Exception as e:
+            except Exception:
                 db.rollback()
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to register user: {str(e)}",
+                    detail={
+                        "error": "registration_failed",
+                        "message": "Failed to register user. Please try again.",
+                    },
                 )
 
         else:
@@ -278,11 +292,14 @@ class AuthService:
                     expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
                 )
 
-            except Exception as e:
+            except Exception:
                 db.rollback()
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to register user: {str(e)}",
+                    detail={
+                        "error": "registration_failed",
+                        "message": "Failed to register user. Please try again.",
+                    },
                 )
 
     # ========================================================================
@@ -314,7 +331,10 @@ class AuthService:
                 if not auth_response.user:
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Invalid email or password",
+                        detail={
+                            "error": "invalid_credentials",
+                            "message": "Email or password is incorrect",
+                        },
                     )
 
                 # Get or create user in our database
@@ -351,10 +371,13 @@ class AuthService:
 
             except HTTPException:
                 raise
-            except Exception as e:
+            except Exception:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=f"Authentication failed: {str(e)}",
+                    detail={
+                        "error": "invalid_credentials",
+                        "message": "Email or password is incorrect",
+                    },
                 )
 
         else:
@@ -363,7 +386,10 @@ class AuthService:
             if not user:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid email or password",
+                    detail={
+                        "error": "invalid_credentials",
+                        "message": "Email or password is incorrect",
+                    },
                 )
 
             # Update last login
@@ -415,7 +441,10 @@ class AuthService:
         if not self.supabase:
             raise HTTPException(
                 status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                detail="Google OAuth requires Supabase Auth to be configured",
+                detail={
+                    "error": "oauth_not_configured",
+                    "message": "Google OAuth requires Supabase Auth to be configured",
+                },
             )
 
         try:
@@ -428,7 +457,10 @@ class AuthService:
             if not auth_response.user:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Google authentication failed",
+                    detail={
+                        "error": "google_auth_failed",
+                        "message": "Failed to authenticate with Google",
+                    },
                 )
 
             # Get or create user in our database
@@ -465,10 +497,13 @@ class AuthService:
 
         except HTTPException:
             raise
-        except Exception as e:
+        except Exception:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Google authentication failed: {str(e)}",
+                detail={
+                    "error": "google_auth_failed",
+                    "message": "Google ID token is invalid or expired",
+                },
             )
 
     # ========================================================================
@@ -499,7 +534,10 @@ class AuthService:
                 if not auth_response.session:
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Invalid or expired refresh token",
+                        detail={
+                            "error": "invalid_refresh_token",
+                            "message": "Refresh token is invalid or expired",
+                        },
                     )
 
                 return TokenResponse(
@@ -509,10 +547,13 @@ class AuthService:
                     expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
                 )
 
-            except Exception as e:
+            except Exception:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=f"Token refresh failed: {str(e)}",
+                    detail={
+                        "error": "invalid_refresh_token",
+                        "message": "Refresh token is invalid or expired",
+                    },
                 )
 
         else:
@@ -524,7 +565,10 @@ class AuthService:
                 if not user_id:
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Invalid token payload",
+                        detail={
+                            "error": "invalid_refresh_token",
+                            "message": "Refresh token is invalid or expired",
+                        },
                     )
 
                 # Verify user still exists
@@ -532,7 +576,10 @@ class AuthService:
                 if not user:
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="User not found",
+                        detail={
+                            "error": "invalid_refresh_token",
+                            "message": "Refresh token is invalid or expired",
+                        },
                     )
 
                 # Create new access token
@@ -548,10 +595,13 @@ class AuthService:
 
             except HTTPException:
                 raise
-            except Exception as e:
+            except Exception:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=f"Token refresh failed: {str(e)}",
+                    detail={
+                        "error": "invalid_refresh_token",
+                        "message": "Refresh token is invalid or expired",
+                    },
                 )
 
     # ========================================================================
@@ -579,7 +629,10 @@ class AuthService:
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token payload",
+                detail={
+                    "error": "invalid_token",
+                    "message": "Invalid authentication token",
+                },
             )
 
         # Get user from database
@@ -587,7 +640,7 @@ class AuthService:
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found",
+                detail={"error": "invalid_token", "message": "User not found"},
             )
 
         return user
