@@ -2,14 +2,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies including development tools
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libpq-dev \
+# Install ONLY curl (for healthcheck if needed)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    gnupg \
-    git \
-    vim \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -29,5 +24,5 @@ COPY . .
 EXPOSE 8000 5678
 
 # Development server with auto-reload
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "./app", "--reload-exclude", "**/__pycache__/**"]
 
