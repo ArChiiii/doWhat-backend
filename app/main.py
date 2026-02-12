@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings
 from sqlalchemy import text
-from app.routers import auth_router
+from app.routers import auth_router, events_router, saved_events_router
 import time
 from datetime import datetime
 
@@ -27,6 +27,8 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth_router)
+app.include_router(events_router)
+app.include_router(saved_events_router)
 
 
 # Request timing middleware

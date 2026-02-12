@@ -8,7 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     Numeric,
 )
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
 from sqlalchemy.sql import func
 import uuid
 from app.database import Base
@@ -32,6 +32,7 @@ class Event(Base):
     is_free = Column(Boolean, default=False, index=True)
     image_url = Column(Text)
     image_urls = Column(ARRAY(Text), nullable=True)
+    schedule = Column(JSONB, nullable=True)
     source_name = Column(String(50), index=True)
     source_url = Column(Text)
     booking_url = Column(Text)
@@ -53,6 +54,11 @@ class Event(Base):
                     "workshops",
                     "outdoor",
                     "family",
+                    "markets",
+                    "theater",
+                    "education",
+                    "festival",
+                    "other",
                 ]
             ),
             name="valid_category",
