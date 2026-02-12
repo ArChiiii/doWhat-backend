@@ -17,6 +17,7 @@ class EventResponse(BaseModel):
     id: str
     title: str
     category: str = "other"
+    categories: list[str] = []
     startTime: str          # ISO8601 from event_date
     endTime: Optional[str] = None  # from event_end_date
     venue: VenueResponse

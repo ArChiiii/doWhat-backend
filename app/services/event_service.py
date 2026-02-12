@@ -75,6 +75,7 @@ class EventService:
             id=str(event.id),
             title=event.title,
             category=event.category or "other",
+            categories=event.categories or [],
             startTime=event.event_date.isoformat() if event.event_date else "",
             endTime=event.event_end_date.isoformat() if event.event_end_date else None,
             venue=VenueResponse(
@@ -111,7 +112,7 @@ class EventService:
             List of filter clauses
         """
         now = datetime.utcnow()
-        filters = [Event.status == "active"]
+        filters = [Event.status.in_(["active", "draft"])]
 
         # Only future or currently-ongoing events:
         # event_end_date >= now  OR  (no end date AND event_date within last 6h)
@@ -184,7 +185,8 @@ class EventService:
         if categories:
             cat_list = [c.strip() for c in categories.split(",") if c.strip()]
             if cat_list:
-                filters.append(Event.category.in_(cat_list))
+                # Use array overlap to find events with any matching category
+                filters.append(Event.categories.overlap(cat_list))
 
         # Total count
         total = db.query(Event).filter(*filters).count()
@@ -257,7 +259,8 @@ class EventService:
         if categories:
             cat_list = [c.strip() for c in categories.split(",") if c.strip()]
             if cat_list:
-                filters.append(Event.category.in_(cat_list))
+                # Use array overlap to find events with any matching category
+                filters.append(Event.categories.overlap(cat_list))
 
         # Approximate bounding box filter when center coordinates are provided
         if lat is not None and lng is not None:
@@ -291,18 +294,26 @@ class EventService:
             self._format_event(e, is_saved=(e.id in saved_ids)) for e in events
         ]
 
-        # Compute bounds from results
+        # Compute bounds from results (filter outliers to HK only)
         bounds = None
         if event_responses:
+            # Hong Kong bounds: exclude geocoding errors outside HK
+            HK_LAT_MIN, HK_LAT_MAX = 22.15, 22.58  # Southern HK to Northern NT
+            HK_LNG_MIN, HK_LNG_MAX = 113.83, 114.41  # Western islands to Eastern NT
+
             lats = [
                 float(e.venue.latitude)
                 for e in event_responses
                 if e.venue.latitude != 0.0
+                and HK_LAT_MIN <= e.venue.latitude <= HK_LAT_MAX
+                and HK_LNG_MIN <= e.venue.longitude <= HK_LNG_MAX
             ]
             lngs = [
                 float(e.venue.longitude)
                 for e in event_responses
                 if e.venue.longitude != 0.0
+                and HK_LAT_MIN <= e.venue.latitude <= HK_LAT_MAX
+                and HK_LNG_MIN <= e.venue.longitude <= HK_LNG_MAX
             ]
             if lats and lngs:
                 bounds = {

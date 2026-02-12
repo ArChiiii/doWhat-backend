@@ -29,6 +29,7 @@ class Event(Base):
     venue_lat = Column(Numeric(9, 6))
     venue_lng = Column(Numeric(9, 6))
     category = Column(String(50), index=True)
+    categories = Column(ARRAY(Text), default=list, nullable=True)
     price_min = Column(Integer)
     price_max = Column(Integer)
     is_free = Column(Boolean, default=False, index=True)

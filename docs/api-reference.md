@@ -206,7 +206,7 @@ Paginated event feed. Active, upcoming events ordered by date. Optional auth to 
 |--------------|---------|---------|--------------------------------------------|
 | `page`       | int     | 1       | Page number (>= 1)                        |
 | `limit`      | int     | 50      | Events per page (1-100)                   |
-| `categories` | string  | null    | Comma-separated: `music,arts,food`         |
+| `categories` | string  | null    | Comma-separated: `music,arts,food` (matches events with ANY of these) |
 | `time_filter`| string  | null    | `today`, `week`, or `all`                  |
 
 **Response** `200`
@@ -218,6 +218,7 @@ Paginated event feed. Active, upcoming events ordered by date. Optional auth to 
       "id": "uuid",
       "title": "Jazz Night at Fringe Club",
       "category": "music",
+      "categories": ["music", "nightlife"],
       "startTime": "2026-02-15T20:00:00",
       "endTime": "2026-02-15T23:00:00",
       "venue": {
@@ -258,7 +259,7 @@ Events for map display. Only returns events that have coordinates (`venue_lat` a
 | `lat`        | float   | null    | Center latitude (for radius filtering)              |
 | `lng`        | float   | null    | Center longitude (for radius filtering)             |
 | `radius`     | int     | 50000   | Radius in meters (only used if lat/lng provided)    |
-| `categories` | string  | null    | Comma-separated category filter                     |
+| `categories` | string  | null    | Comma-separated category filter (matches events with ANY) |
 | `time_filter`| string  | null    | `today`, `week`, or `all`                           |
 | `limit`      | int     | 200     | Max events (1-500)                                  |
 
@@ -403,9 +404,11 @@ Remove a saved event.
 interface EventResponse {
   id: string;               // UUID
   title: string;
-  category: string;         // music | arts | food | sports | nightlife | workshops
-                            // outdoor | family | markets | theater | education
-                            // festival | other
+  category: string;         // Single category (backward compat): music | arts | food | sports
+                            // nightlife | workshops | outdoor | family | markets | theater
+                            // education | festival | other
+  categories: string[];     // Array of categories (AI-extracted, multi-category support)
+                            // Uses same values as category field
   startTime: string;        // ISO8601 datetime
   endTime: string | null;   // ISO8601 datetime
   venue: {
@@ -429,9 +432,25 @@ interface EventResponse {
 
 ## Categories
 
-Valid values for the `categories` filter parameter:
+Events now support **multi-category tagging** via the `categories` array field (introduced for Instagram AI-extracted events). The legacy `category` field (single string) is kept for backward compatibility.
+
+**Valid category values:**
 
 `music`, `arts`, `food`, `sports`, `nightlife`, `workshops`, `outdoor`, `family`, `markets`, `theater`, `education`, `festival`, `other`
+
+**Category Filtering:**
+
+When filtering by `?categories=music,arts`:
+- The API searches the `categories` **array field** using PostgreSQL array overlap (`&&`)
+- Events that have **ANY** of the requested categories will be included in results
+- Example: An event with `categories: ["music", "nightlife", "entertainment"]` **will match** a filter of `categories=music`
+- Example: An event with `categories: ["food", "family"]` **will NOT match** a filter of `categories=music,arts`
+
+**Event Sources:**
+
+- **Instagram-scraped events**: Use AI extraction to populate `categories` array with multiple relevant categories
+- **Manual/legacy events**: May only have the single `category` field populated
+- Both fields are included in API responses for maximum compatibility
 
 ## Rate Limits
 
