@@ -140,18 +140,22 @@ async def verify_refresh_token(
 
     token = credentials.credentials
 
-    # Verify token is a refresh token
-    try:
-        payload = auth_service.verify_token(token, token_type="refresh")
-        if not payload:
+    if auth_service.supabase:
+        # Supabase handles refresh token verification in refresh_access_token()
+        return token
+    else:
+        # Fallback: Verify token locally
+        try:
+            payload = auth_service.verify_token(token, token_type="refresh")
+            if not payload:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid refresh token",
+                )
+            return token
+        except Exception:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid refresh token",
+                detail="Invalid or expired refresh token",
+                headers={"WWW-Authenticate": "Bearer"},
             )
-        return token
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )

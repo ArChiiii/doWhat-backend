@@ -622,25 +622,69 @@ class AuthService:
         Raises:
             HTTPException: If token is invalid or user not found
         """
-        # Verify token
-        payload = self.verify_token(token, token_type="access")
-        user_id = payload.get("sub")
+        if self.supabase:
+            try:
+                # Verify token via Supabase Auth
+                user_response = self.supabase.auth.get_user(token)
 
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={
-                    "error": "invalid_token",
-                    "message": "Invalid authentication token",
-                },
-            )
+                if not user_response or not user_response.user:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail={
+                            "error": "invalid_token",
+                            "message": "Invalid authentication token",
+                        },
+                    )
 
-        # Get user from database
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={"error": "invalid_token", "message": "User not found"},
-            )
+                supabase_user = user_response.user
 
-        return user
+                # Get or create user in our database
+                user = db.query(User).filter(User.id == supabase_user.id).first()
+                if not user:
+                    user = User(
+                        id=supabase_user.id,
+                        email=supabase_user.email,
+                        email_verified=supabase_user.email_confirmed_at is not None,
+                        auth_provider="email",
+                    )
+                    db.add(user)
+                    db.commit()
+                    db.refresh(user)
+
+                return user
+
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail={
+                        "error": "invalid_token",
+                        "message": "Invalid or expired token",
+                    },
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
+        else:
+            # Fallback: Verify token locally
+            payload = self.verify_token(token, token_type="access")
+            user_id = payload.get("sub")
+
+            if not user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail={
+                        "error": "invalid_token",
+                        "message": "Invalid authentication token",
+                    },
+                )
+
+            # Get user from database
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail={"error": "invalid_token", "message": "User not found"},
+                )
+
+            return user

@@ -6,14 +6,16 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_auth_service, verify_refresh_token
+from app.dependencies import get_auth_service, get_current_user, verify_refresh_token
 from app.services.auth_service import AuthService
+from app.models.user import User
 from app.schemas.auth import (
     UserRegisterRequest,
     UserLoginRequest,
     GoogleAuthRequest,
     AuthResponse,
     TokenResponse,
+    UserResponse,
     ErrorResponse,
 )
 
@@ -247,12 +249,14 @@ async def refresh_token(
 
 @router.get(
     "/me",
+    response_model=UserResponse,
     status_code=status.HTTP_200_OK,
     summary="Get current user",
     description="Get information about the currently authenticated user.",
     responses={
         200: {
             "description": "Current user information",
+            "model": UserResponse,
         },
         401: {
             "description": "Not authenticated or invalid token",
@@ -261,9 +265,8 @@ async def refresh_token(
     },
 )
 async def get_me(
-    db: Session = Depends(get_db),
-    auth_service: AuthService = Depends(get_auth_service),
-):
+    current_user: User = Depends(get_current_user),
+) -> UserResponse:
     """
     Get current authenticated user information.
 
@@ -295,6 +298,11 @@ async def get_me(
     **Error Responses:**
     - `401 Unauthorized`: Not authenticated or invalid token
     """
-    # This endpoint will be implemented with the get_current_user dependency
-    # when we have full user profile functionality
-    return {"message": "Endpoint coming soon - use /api/v1/users/me"}
+    return UserResponse(
+        id=str(current_user.id),
+        email=current_user.email,
+        email_verified=current_user.email_verified,
+        auth_provider=current_user.auth_provider,
+        created_at=current_user.created_at,
+        last_login_at=current_user.last_login_at,
+    )
