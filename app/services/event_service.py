@@ -66,6 +66,11 @@ class EventService:
         Returns:
             EventResponse schema instance
         """
+        # Resolve image: event.image_url → instagram_post.feature_image_url fallback
+        image_url = event.image_url
+        if not image_url and hasattr(event, "instagram_post") and event.instagram_post:
+            image_url = event.instagram_post.feature_image_url
+
         return EventResponse(
             id=str(event.id),
             title=event.title,
@@ -78,7 +83,7 @@ class EventService:
                 latitude=float(event.venue_lat) if event.venue_lat is not None else 0.0,
                 longitude=float(event.venue_lng) if event.venue_lng is not None else 0.0,
             ),
-            imageUrl=event.image_url or "",
+            imageUrl=image_url or "",
             organizer=event.source_name or "",
             description=event.description or "",
             sourceUrl=event.source_url or "",

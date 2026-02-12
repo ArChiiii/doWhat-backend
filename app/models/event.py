@@ -1,5 +1,6 @@
 from sqlalchemy import (
     Column,
+    ForeignKey,
     String,
     Text,
     Integer,
@@ -9,6 +10,7 @@ from sqlalchemy import (
     Numeric,
 )
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
 from app.database import Base
@@ -32,6 +34,9 @@ class Event(Base):
     is_free = Column(Boolean, default=False, index=True)
     image_url = Column(Text)
     image_urls = Column(ARRAY(Text), nullable=True)
+    instagram_post_id = Column(
+        UUID(as_uuid=True), ForeignKey("instagram_posts.id"), nullable=True
+    )
     schedule = Column(JSONB, nullable=True)
     source_name = Column(String(50), index=True)
     source_url = Column(Text)
@@ -41,6 +46,8 @@ class Event(Base):
     scraped_at = Column(TIMESTAMP, server_default=func.now())
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    instagram_post = relationship("InstagramPost", lazy="joined")
 
     __table_args__ = (
         CheckConstraint(
@@ -64,6 +71,7 @@ class Event(Base):
             name="valid_category",
         ),
         CheckConstraint(
-            status.in_(["active", "cancelled", "expired"]), name="valid_status"
+            status.in_(["draft", "active", "cancelled", "expired"]),
+            name="valid_status",
         ),
     )
