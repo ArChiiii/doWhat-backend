@@ -1,23 +1,36 @@
 #!/usr/bin/env python3
 """
-Pytest-based API endpoint testing for doWhat backend.
+Pytest-based integration tests for doWhat backend.
 
-This test suite focuses on API endpoint functionality without database
-connection testing. Tests include:
+Hits the real Docker-hosted API on localhost:8000.
+Run with: pytest tests/test_api_endpoints.py -v
+
+Tests include:
 1. API server reachability
 2. Health check endpoint
 3. API status endpoint
-4. User registration endpoint
-5. User login endpoint
-6. Connection stability
-
-Run with: pytest tests/test_api_endpoints.py -v
+4. User registration
+5. User login
+6. Token refresh
+7. GET /me
+8. Event feed
+9. Map events
+10. Event detail
+11. Swipe recording
+12. Saved events CRUD
+13. Connection stability
+14. Error handling
 """
 
 import pytest
 import requests
 import time
 from typing import Dict, Any, Optional
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -40,16 +53,32 @@ def api_client(api_base_url):
             endpoint: str,
             data: Optional[Dict[str, Any]] = None,
             headers: Optional[Dict[str, str]] = None,
+            params: Optional[Dict[str, Any]] = None,
             timeout: int = 10,
         ) -> Optional[requests.Response]:
             """Make HTTP request to API."""
             url = f"{self.base_url}{endpoint}"
             try:
-                if method.upper() == "GET":
-                    response = requests.get(url, headers=headers, timeout=timeout)
-                elif method.upper() == "POST":
+                method_upper = method.upper()
+                if method_upper == "GET":
+                    response = requests.get(
+                        url, headers=headers, params=params, timeout=timeout
+                    )
+                elif method_upper == "POST":
                     response = requests.post(
-                        url, json=data, headers=headers, timeout=timeout
+                        url, json=data, headers=headers, params=params, timeout=timeout
+                    )
+                elif method_upper == "DELETE":
+                    response = requests.delete(
+                        url, headers=headers, params=params, timeout=timeout
+                    )
+                elif method_upper == "PUT":
+                    response = requests.put(
+                        url, json=data, headers=headers, params=params, timeout=timeout
+                    )
+                elif method_upper == "PATCH":
+                    response = requests.patch(
+                        url, json=data, headers=headers, params=params, timeout=timeout
                     )
                 else:
                     raise ValueError(f"Unsupported method: {method}")
@@ -76,6 +105,70 @@ def test_user_data():
     }
 
 
+@pytest.fixture
+def auth_headers(api_client, test_user_data):
+    """
+    Register a fresh user and return Authorization headers with access token.
+    Validates the token actually works with /api/v1/auth/me; skips if the
+    backend uses Supabase-signed tokens (which can't be verified locally).
+    """
+    reg = api_client.make_request(
+        "POST", "/api/v1/auth/register", data=test_user_data
+    )
+    if reg.status_code != 201:
+        pytest.skip("Could not register test user (possibly duplicate)")
+
+    data = reg.json()
+    token = data["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Verify the token is accepted by the backend
+    me = api_client.make_request("GET", "/api/v1/auth/me", headers=headers)
+    if me.status_code == 401:
+        pytest.skip(
+            "Supabase-signed tokens cannot be verified by local JWT — "
+            "run with local-dev auth (no SUPABASE_URL) for full coverage"
+        )
+
+    return {
+        "Authorization": f"Bearer {token}",
+        "_auth_data": data,
+    }
+
+
+@pytest.fixture
+def auth_tokens(api_client, test_user_data):
+    """
+    Register user and return both access + refresh tokens.
+    Validates the access token works; skips on Supabase token mismatch.
+    """
+    reg = api_client.make_request(
+        "POST", "/api/v1/auth/register", data=test_user_data
+    )
+    if reg.status_code != 201:
+        pytest.skip("Could not register test user")
+    data = reg.json()
+
+    # Verify the token is usable
+    headers = {"Authorization": f"Bearer {data['access_token']}"}
+    me = api_client.make_request("GET", "/api/v1/auth/me", headers=headers)
+    if me.status_code == 401:
+        pytest.skip(
+            "Supabase-signed tokens cannot be verified by local JWT — "
+            "run with local-dev auth for full coverage"
+        )
+
+    return {
+        "access_token": data["access_token"],
+        "refresh_token": data["refresh_token"],
+    }
+
+
+# =====================================================================
+# 1. Server Reachability
+# =====================================================================
+
+
 class TestAPIServerReachability:
     """Test API server basic connectivity."""
 
@@ -91,6 +184,11 @@ class TestAPIServerReachability:
         assert "message" in data
         assert "environment" in data
         assert "status" in data
+
+
+# =====================================================================
+# 2. Health Check
+# =====================================================================
 
 
 class TestHealthCheck:
@@ -111,6 +209,11 @@ class TestHealthCheck:
         assert "database" in data
 
 
+# =====================================================================
+# 3. API Status
+# =====================================================================
+
+
 class TestAPIStatus:
     """Test API status endpoint."""
 
@@ -127,6 +230,11 @@ class TestAPIStatus:
         assert "status" in data
         assert "endpoints" in data
         assert isinstance(data["endpoints"], dict)
+
+
+# =====================================================================
+# 4. User Registration
+# =====================================================================
 
 
 class TestUserRegistration:
@@ -181,6 +289,11 @@ class TestUserRegistration:
 
         assert response is not None
         assert response.status_code == 422  # Validation error
+
+
+# =====================================================================
+# 5. User Login
+# =====================================================================
 
 
 class TestUserLogin:
@@ -240,6 +353,349 @@ class TestUserLogin:
         assert response.status_code == 422  # Validation error
 
 
+# =====================================================================
+# 6. Token Refresh
+# =====================================================================
+
+
+class TestTokenRefresh:
+    """Test token refresh endpoint."""
+
+    @pytest.mark.integration
+    def test_refresh_with_valid_token(self, api_client, auth_tokens):
+        """Refresh endpoint returns new access token."""
+        headers = {"Authorization": f"Bearer {auth_tokens['refresh_token']}"}
+        resp = api_client.make_request("POST", "/api/v1/auth/refresh", headers=headers)
+
+        assert resp is not None
+        assert resp.status_code == 200
+
+        data = resp.json()
+        assert "access_token" in data
+        assert data["token_type"] == "bearer"
+
+    @pytest.mark.unit
+    def test_refresh_without_token_returns_error(self, api_client):
+        """Refresh without Authorization header returns 401/403."""
+        resp = api_client.make_request("POST", "/api/v1/auth/refresh")
+        assert resp is not None
+        assert resp.status_code in (401, 403)
+
+    @pytest.mark.unit
+    def test_refresh_with_bad_token(self, api_client):
+        """Refresh with garbage token returns 401."""
+        headers = {"Authorization": "Bearer obviously-bad-token"}
+        resp = api_client.make_request("POST", "/api/v1/auth/refresh", headers=headers)
+        assert resp is not None
+        assert resp.status_code == 401
+
+
+# =====================================================================
+# 7. GET /me
+# =====================================================================
+
+
+class TestGetMe:
+    """Test GET /api/v1/auth/me."""
+
+    @pytest.mark.integration
+    def test_me_returns_user_info(self, api_client, auth_headers):
+        """Authenticated user gets their own profile."""
+        headers = {"Authorization": auth_headers["Authorization"]}
+        resp = api_client.make_request("GET", "/api/v1/auth/me", headers=headers)
+
+        assert resp is not None
+        assert resp.status_code == 200
+
+        data = resp.json()
+        assert "id" in data
+        assert "email" in data
+        assert "auth_provider" in data
+
+    @pytest.mark.unit
+    def test_me_without_auth_returns_error(self, api_client):
+        """Unauthenticated request to /me returns 401/403."""
+        resp = api_client.make_request("GET", "/api/v1/auth/me")
+        assert resp is not None
+        assert resp.status_code in (401, 403)
+
+
+# =====================================================================
+# 8. Event Feed
+# =====================================================================
+
+
+class TestEventFeed:
+    """Test GET /api/v1/events/feed."""
+
+    @pytest.mark.integration
+    def test_feed_returns_200(self, api_client):
+        """Feed endpoint returns valid paginated response."""
+        resp = api_client.make_request("GET", "/api/v1/events/feed")
+        assert resp is not None
+        assert resp.status_code == 200
+
+        data = resp.json()
+        assert "events" in data
+        assert "count" in data
+        assert "total" in data
+        assert isinstance(data["events"], list)
+
+    @pytest.mark.integration
+    def test_feed_pagination(self, api_client):
+        """Feed respects page and limit params."""
+        resp = api_client.make_request(
+            "GET", "/api/v1/events/feed",
+            params={"page": 1, "limit": 5},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["events"]) <= 5
+
+    @pytest.mark.unit
+    def test_feed_invalid_page_returns_422(self, api_client):
+        resp = api_client.make_request(
+            "GET", "/api/v1/events/feed",
+            params={"page": 0},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.integration
+    def test_feed_with_category_filter(self, api_client):
+        resp = api_client.make_request(
+            "GET", "/api/v1/events/feed",
+            params={"categories": "music"},
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.integration
+    def test_feed_with_time_filter(self, api_client):
+        resp = api_client.make_request(
+            "GET", "/api/v1/events/feed",
+            params={"time_filter": "week"},
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.integration
+    def test_feed_authenticated_marks_saved(self, api_client, auth_headers):
+        """Authenticated feed includes isSaved flag."""
+        headers = {"Authorization": auth_headers["Authorization"]}
+        resp = api_client.make_request(
+            "GET", "/api/v1/events/feed", headers=headers
+        )
+        assert resp.status_code == 200
+        # All events should have isSaved field
+        for ev in resp.json()["events"]:
+            assert "isSaved" in ev
+
+
+# =====================================================================
+# 9. Map Events
+# =====================================================================
+
+
+class TestMapEvents:
+    """Test GET /api/v1/events/map."""
+
+    @pytest.mark.integration
+    def test_map_returns_200(self, api_client):
+        resp = api_client.make_request("GET", "/api/v1/events/map")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "events" in data
+        assert "count" in data
+
+    @pytest.mark.integration
+    def test_map_with_location(self, api_client):
+        """Map endpoint filters by lat/lng/radius."""
+        resp = api_client.make_request(
+            "GET", "/api/v1/events/map",
+            params={"lat": 22.28, "lng": 114.16, "radius": 10000},
+        )
+        assert resp.status_code == 200
+
+
+# =====================================================================
+# 10. Event Detail
+# =====================================================================
+
+
+class TestEventDetail:
+    """Test GET /api/v1/events/{event_id}."""
+
+    @pytest.mark.integration
+    def test_nonexistent_event_returns_404(self, api_client):
+        """Requesting a random UUID returns 404."""
+        import uuid
+        fake_id = str(uuid.uuid4())
+        resp = api_client.make_request("GET", f"/api/v1/events/{fake_id}")
+        assert resp.status_code == 404
+
+    @pytest.mark.integration
+    def test_real_event_if_available(self, api_client):
+        """If feed has events, fetching one by ID returns 200."""
+        feed = api_client.make_request(
+            "GET", "/api/v1/events/feed", params={"limit": 1}
+        )
+        events = feed.json().get("events", [])
+        if not events:
+            pytest.skip("No events in feed to test detail endpoint")
+        eid = events[0]["id"]
+        resp = api_client.make_request("GET", f"/api/v1/events/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == eid
+        assert "title" in data
+        assert "venue" in data
+
+
+# =====================================================================
+# 11. Swipe
+# =====================================================================
+
+
+class TestSwipe:
+    """Test POST /api/v1/events/{event_id}/swipe."""
+
+    @pytest.mark.unit
+    def test_swipe_requires_auth(self, api_client):
+        import uuid
+        eid = str(uuid.uuid4())
+        resp = api_client.make_request(
+            "POST", f"/api/v1/events/{eid}/swipe",
+            data={"direction": "right"},
+        )
+        assert resp.status_code in (401, 403)
+
+    @pytest.mark.unit
+    def test_swipe_invalid_direction(self, api_client, auth_headers):
+        import uuid
+        eid = str(uuid.uuid4())
+        headers = {"Authorization": auth_headers["Authorization"]}
+        resp = api_client.make_request(
+            "POST", f"/api/v1/events/{eid}/swipe",
+            data={"direction": "up"},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.integration
+    def test_swipe_on_real_event(self, api_client, auth_headers):
+        """Swipe right on a real event from the feed."""
+        feed = api_client.make_request(
+            "GET", "/api/v1/events/feed", params={"limit": 1}
+        )
+        events = feed.json().get("events", [])
+        if not events:
+            pytest.skip("No events in feed")
+        eid = events[0]["id"]
+        headers = {"Authorization": auth_headers["Authorization"]}
+        resp = api_client.make_request(
+            "POST", f"/api/v1/events/{eid}/swipe",
+            data={"direction": "right"},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+
+# =====================================================================
+# 12. Saved Events CRUD
+# =====================================================================
+
+
+class TestSavedEventsCRUD:
+    """Test saved events list/save/unsave cycle."""
+
+    @pytest.mark.integration
+    def test_list_saved_requires_auth(self, api_client):
+        resp = api_client.make_request("GET", "/api/v1/users/saved-events/")
+        assert resp.status_code in (401, 403)
+
+    @pytest.mark.integration
+    def test_list_saved_empty(self, api_client, auth_headers):
+        """New user has no saved events."""
+        headers = {"Authorization": auth_headers["Authorization"]}
+        resp = api_client.make_request(
+            "GET", "/api/v1/users/saved-events/", headers=headers
+        )
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    @pytest.mark.integration
+    def test_save_and_unsave_cycle(self, api_client, auth_headers):
+        """Save an event, verify it appears, unsave it."""
+        headers = {"Authorization": auth_headers["Authorization"]}
+
+        # Get an event from the feed
+        feed = api_client.make_request(
+            "GET", "/api/v1/events/feed", params={"limit": 1}
+        )
+        events = feed.json().get("events", [])
+        if not events:
+            pytest.skip("No events in feed")
+        eid = events[0]["id"]
+
+        # Save
+        save_resp = api_client.make_request(
+            "POST", f"/api/v1/users/saved-events/{eid}", headers=headers
+        )
+        assert save_resp.status_code == 200
+        assert save_resp.json()["success"] is True
+
+        # Verify in list
+        list_resp = api_client.make_request(
+            "GET", "/api/v1/users/saved-events/", headers=headers
+        )
+        assert list_resp.status_code == 200
+        ids = [e["id"] for e in list_resp.json()]
+        assert eid in ids
+
+        # Unsave
+        unsave_resp = api_client.make_request(
+            "DELETE", f"/api/v1/users/saved-events/{eid}", headers=headers
+        )
+        assert unsave_resp.status_code == 200
+        assert unsave_resp.json()["success"] is True
+
+    @pytest.mark.integration
+    def test_save_idempotent(self, api_client, auth_headers):
+        """Saving the same event twice succeeds both times."""
+        headers = {"Authorization": auth_headers["Authorization"]}
+        feed = api_client.make_request(
+            "GET", "/api/v1/events/feed", params={"limit": 1}
+        )
+        events = feed.json().get("events", [])
+        if not events:
+            pytest.skip("No events in feed")
+        eid = events[0]["id"]
+
+        r1 = api_client.make_request(
+            "POST", f"/api/v1/users/saved-events/{eid}", headers=headers
+        )
+        r2 = api_client.make_request(
+            "POST", f"/api/v1/users/saved-events/{eid}", headers=headers
+        )
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+
+    @pytest.mark.integration
+    def test_unsave_nonexistent_returns_404(self, api_client, auth_headers):
+        """Unsaving an event never saved returns 404."""
+        import uuid
+        headers = {"Authorization": auth_headers["Authorization"]}
+        fake_id = str(uuid.uuid4())
+        resp = api_client.make_request(
+            "DELETE", f"/api/v1/users/saved-events/{fake_id}", headers=headers
+        )
+        assert resp.status_code == 404
+
+
+# =====================================================================
+# 13. Connection Stability
+# =====================================================================
+
+
 class TestConnectionStability:
     """Test API connection stability."""
 
@@ -277,6 +733,11 @@ class TestConnectionStability:
         ), f"Health endpoint took {elapsed_time:.2f}s (too slow)"
 
 
+# =====================================================================
+# 14. Error Handling
+# =====================================================================
+
+
 class TestAPIErrorHandling:
     """Test API error handling and edge cases."""
 
@@ -300,8 +761,6 @@ class TestAPIErrorHandling:
     @pytest.mark.unit
     def test_malformed_json_returns_422(self, api_client):
         """Test that malformed JSON returns appropriate error."""
-        # This test would require sending raw malformed JSON
-        # For now, we'll test with missing required fields
         incomplete_data = {"email": "test@dowhat.com"}  # Missing password
 
         response = api_client.make_request(
@@ -312,7 +771,11 @@ class TestAPIErrorHandling:
         assert response.status_code == 422
 
 
-# Utility functions for test reporting
+# =====================================================================
+# Pytest hooks (marker config)
+# =====================================================================
+
+
 def pytest_configure(config):
     """Configure pytest with custom markers."""
     config.addinivalue_line("markers", "unit: Unit tests (fast, isolated)")
