@@ -7,8 +7,9 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func, cast
 from fastapi import HTTPException, status
+from geoalchemy2 import Geography
 
 from app.models.event import Event
 from app.models.interested_event import InterestedEvent
@@ -305,21 +306,39 @@ class EventService:
         lat: Optional[float] = None,
         lng: Optional[float] = None,
         radius_m: int = 50000,
+        ne_lat: Optional[float] = None,
+        ne_lng: Optional[float] = None,
+        sw_lat: Optional[float] = None,
+        sw_lng: Optional[float] = None,
         time_filter: Optional[str] = None,
         categories: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        price_min: Optional[int] = None,
+        price_max: Optional[int] = None,
+        is_free: Optional[bool] = None,
         limit: int = 200,
     ) -> MapEventsResponse:
         """
-        Get events for map display, optionally filtered by location radius.
+        Get events for map display, optionally filtered by location (viewport or radius).
 
         Args:
             db: Database session
             user_id: Optional authenticated user ID
-            lat: Center latitude
-            lng: Center longitude
-            radius_m: Radius in meters
+            lat: Center latitude (for radius mode)
+            lng: Center longitude (for radius mode)
+            radius_m: Radius in meters (for radius mode)
+            ne_lat: Northeast latitude (viewport mode)
+            ne_lng: Northeast longitude (viewport mode)
+            sw_lat: Southwest latitude (viewport mode)
+            sw_lng: Southwest longitude (viewport mode)
             time_filter: Time constraint
             categories: Comma-separated category filter
+            date_from: Start date ISO8601
+            date_to: End date ISO8601
+            price_min: Minimum price in HKD
+            price_max: Maximum price in HKD
+            is_free: Filter free events only
             limit: Maximum events to return
 
         Returns:
@@ -328,8 +347,7 @@ class EventService:
         filters = self._active_event_filters(time_filter)
 
         # Only events with coordinates
-        filters.append(Event.venue_lat.isnot(None))
-        filters.append(Event.venue_lng.isnot(None))
+        filters.append(Event.venue_location.isnot(None))
 
         if categories:
             cat_list = [c.strip() for c in categories.split(",") if c.strip()]
@@ -337,25 +355,64 @@ class EventService:
                 # Use array overlap to find events with any matching category
                 filters.append(Event.categories.overlap(cat_list))
 
-        # Approximate bounding box filter when center coordinates are provided
-        if lat is not None and lng is not None:
-            import math
+        # Date range filter
+        if date_from:
+            try:
+                from_dt = datetime.fromisoformat(date_from)
+                filters.append(Event.event_date >= from_dt)
+            except ValueError:
+                pass
 
-            # 1 degree latitude ~ 111,320 meters
-            lat_delta = radius_m / 111320.0
-            # 1 degree longitude varies by latitude (cos approximation)
-            cos_lat = math.cos(math.radians(float(lat)))
-            lng_delta = radius_m / (111320.0 * max(cos_lat, 0.0001))
+        if date_to:
+            try:
+                to_dt = datetime.fromisoformat(date_to).replace(
+                    hour=23, minute=59, second=59
+                )
+                filters.append(Event.event_date <= to_dt)
+            except ValueError:
+                pass
 
-            filters.append(Event.venue_lat >= lat - lat_delta)
-            filters.append(Event.venue_lat <= lat + lat_delta)
-            filters.append(Event.venue_lng >= lng - lng_delta)
-            filters.append(Event.venue_lng <= lng + lng_delta)
+        # Price range filter
+        if is_free is True:
+            filters.append(Event.is_free == True)
+
+        if price_min is not None:
+            filters.append(Event.price_min.isnot(None))
+            filters.append(Event.price_min >= price_min)
+
+        if price_max is not None:
+            filters.append(Event.price_max.isnot(None))
+            filters.append(Event.price_max <= price_max)
+
+        # PostGIS spatial filtering
+        # Mode 1: Viewport bounds (preferred for map display)
+        if (
+            ne_lat is not None
+            and ne_lng is not None
+            and sw_lat is not None
+            and sw_lng is not None
+        ):
+            # Use ST_MakeEnvelope for viewport-based filtering
+            envelope = func.ST_MakeEnvelope(sw_lng, sw_lat, ne_lng, ne_lat, 4326)
+            filters.append(
+                func.ST_Intersects(Event.venue_location, cast(envelope, Geography))
+            )
+        # Mode 2: Radius from center (for "near me" queries)
+        elif lat is not None and lng is not None:
+            # Use ST_DWithin for distance-based filtering (uses GiST index)
+            center_point = func.ST_SetSRID(func.ST_MakePoint(lng, lat), 4326)
+            filters.append(
+                func.ST_DWithin(
+                    Event.venue_location,
+                    cast(center_point, Geography),
+                    radius_m,  # meters (Geography type returns meters)
+                )
+            )
 
         events = (
             db.query(Event)
             .filter(*filters)
-            .order_by(Event.event_date.asc())
+            .order_by(Event.interest_count.desc().nulls_last(), Event.event_date.asc())
             .limit(limit)
             .all()
         )

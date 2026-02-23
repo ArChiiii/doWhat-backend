@@ -93,14 +93,23 @@ async def get_event_feed(
     response_model=MapEventsResponse,
     status_code=status.HTTP_200_OK,
     summary="Get map events",
-    description="Get events for map display with optional location radius filtering.",
+    description="Get events for map display with PostGIS spatial filtering.",
 )
 async def get_map_events(
-    lat: Optional[float] = Query(None, description="Center latitude"),
-    lng: Optional[float] = Query(None, description="Center longitude"),
-    radius: int = Query(50000, description="Radius in meters"),
-    time_filter: Optional[str] = Query(None, description="Time filter: today, week, all"),
+    lat: Optional[float] = Query(None, description="Center latitude (for radius mode)"),
+    lng: Optional[float] = Query(None, description="Center longitude (for radius mode)"),
+    radius: int = Query(50000, description="Radius in meters (for radius mode)"),
+    ne_lat: Optional[float] = Query(None, description="Northeast latitude (viewport mode)"),
+    ne_lng: Optional[float] = Query(None, description="Northeast longitude (viewport mode)"),
+    sw_lat: Optional[float] = Query(None, description="Southwest latitude (viewport mode)"),
+    sw_lng: Optional[float] = Query(None, description="Southwest longitude (viewport mode)"),
     categories: Optional[str] = Query(None, description="Comma-separated category filter"),
+    time_filter: Optional[str] = Query(None, description="Time filter: today, week, all"),
+    date_from: Optional[str] = Query(None, description="Start date ISO8601"),
+    date_to: Optional[str] = Query(None, description="End date ISO8601"),
+    price_min: Optional[int] = Query(None, ge=0, description="Minimum price in HKD"),
+    price_max: Optional[int] = Query(None, ge=0, description="Maximum price in HKD"),
+    is_free: Optional[bool] = Query(None, description="Filter free events only"),
     limit: int = Query(200, ge=1, le=500, description="Maximum events to return"),
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
@@ -109,7 +118,8 @@ async def get_map_events(
     Get events for map display.
 
     Supports optional authentication to mark saved events.
-    Filter by location radius, categories, and time window.
+    Filter by viewport bounds or radius, categories, time window, date range, and price.
+    Uses PostGIS ST_DWithin and ST_Intersects with GiST spatial index for performance.
     """
     user_id = current_user.id if current_user else None
     return await event_service.get_map_events(
@@ -118,8 +128,17 @@ async def get_map_events(
         lat=lat,
         lng=lng,
         radius_m=radius,
+        ne_lat=ne_lat,
+        ne_lng=ne_lng,
+        sw_lat=sw_lat,
+        sw_lng=sw_lng,
         time_filter=time_filter,
         categories=categories,
+        date_from=date_from,
+        date_to=date_to,
+        price_min=price_min,
+        price_max=price_max,
+        is_free=is_free,
         limit=limit,
     )
 
