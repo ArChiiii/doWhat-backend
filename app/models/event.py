@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
+from geoalchemy2 import Geography
 from app.database import Base
 
 
@@ -28,6 +29,7 @@ class Event(Base):
     venue_address = Column(Text)
     venue_lat = Column(Numeric(9, 6))
     venue_lng = Column(Numeric(9, 6))
+    venue_location = Column(Geography(geometry_type="POINT", srid=4326), nullable=True)
     category = Column(String(50), index=True)
     categories = Column(ARRAY(Text), default=list, nullable=True)
     price_min = Column(Integer)
