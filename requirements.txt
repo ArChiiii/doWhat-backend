@@ -9,6 +9,7 @@ alembic==1.13.2
 psycopg2-binary==2.9.9
 geoalchemy2==0.15.2
 fastapi-pagination==0.15.10
+sqlakeyset==2.0.1762907931
 
 # Supabase
 supabase==2.6.0
