@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi_pagination import add_pagination
 from app.config import settings
 from sqlalchemy import text
 from app.routers import auth_router, events_router, saved_events_router
@@ -165,6 +166,10 @@ async def startup_event():
 async def shutdown_event():
     """Run on application shutdown"""
     print(f"👋 Shutting down {settings.APP_NAME}")
+
+
+# Add pagination support
+add_pagination(app)
 
 
 if __name__ == "__main__":

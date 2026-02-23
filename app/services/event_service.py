@@ -157,6 +157,81 @@ class EventService:
     # Event Feed
     # ========================================================================
 
+    def build_event_feed_query(
+        self,
+        db: Session,
+        categories: Optional[str] = None,
+        time_filter: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        price_min: Optional[int] = None,
+        price_max: Optional[int] = None,
+        is_free: Optional[bool] = None,
+    ):
+        """
+        Build a SQLAlchemy query for event feed (for cursor pagination).
+
+        Args:
+            db: Database session
+            categories: Comma-separated category filter
+            time_filter: Time constraint (today, week, all)
+            date_from: Start date ISO8601 (e.g. 2026-03-01)
+            date_to: End date ISO8601 (e.g. 2026-03-31)
+            price_min: Minimum price in HKD
+            price_max: Maximum price in HKD
+            is_free: Filter free events only
+
+        Returns:
+            SQLAlchemy Query object (not executed)
+        """
+        filters = self._active_event_filters(time_filter)
+
+        # Category filter
+        if categories:
+            cat_list = [c.strip() for c in categories.split(",") if c.strip()]
+            if cat_list:
+                filters.append(Event.categories.overlap(cat_list))
+
+        # Date range filter
+        if date_from:
+            try:
+                from_dt = datetime.fromisoformat(date_from)
+                filters.append(Event.event_date >= from_dt)
+            except ValueError:
+                pass  # Silently ignore invalid date format
+
+        if date_to:
+            try:
+                to_dt = datetime.fromisoformat(date_to).replace(
+                    hour=23, minute=59, second=59
+                )
+                filters.append(Event.event_date <= to_dt)
+            except ValueError:
+                pass
+
+        # Price range filter
+        if is_free is True:
+            filters.append(Event.is_free == True)
+
+        if price_min is not None:
+            # Exclude events with null prices when price filters are active
+            filters.append(Event.price_min.isnot(None))
+            filters.append(Event.price_min >= price_min)
+
+        if price_max is not None:
+            # Exclude events with null prices when price filters are active
+            filters.append(Event.price_max.isnot(None))
+            filters.append(Event.price_max <= price_max)
+
+        # Build query with stable ordering for cursor pagination
+        query = (
+            db.query(Event)
+            .filter(*filters)
+            .order_by(Event.event_date.asc(), Event.id.asc())
+        )
+
+        return query
+
     async def get_event_feed(
         self,
         db: Session,

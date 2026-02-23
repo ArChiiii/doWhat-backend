@@ -4,11 +4,14 @@ Event endpoints for feed generation, map display, detail view, and swipe recordi
 
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
+from fastapi_pagination.cursor import CursorPage, CursorParams
+from fastapi_pagination.ext.sqlalchemy import paginate
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
+from app.models.event import Event
 from app.services.event_service import EventService
 from app.schemas.events import (
     EventResponse,
@@ -26,34 +29,63 @@ event_service = EventService()
 
 @router.get(
     "/feed",
-    response_model=EventFeedResponse,
+    response_model=CursorPage[EventResponse],
     status_code=status.HTTP_200_OK,
     summary="Get event feed",
-    description="Get paginated feed of active, upcoming events. Supports category and time filtering.",
+    description="Get cursor-paginated feed of active, upcoming events with filtering.",
 )
 async def get_event_feed(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(50, ge=1, le=100, description="Events per page"),
+    cursor: Optional[str] = Query(None, description="Pagination cursor"),
+    size: int = Query(20, ge=1, le=100, alias="limit", description="Events per page"),
     categories: Optional[str] = Query(None, description="Comma-separated category filter"),
     time_filter: Optional[str] = Query(None, description="Time filter: today, week, all"),
+    date_from: Optional[str] = Query(None, description="Start date ISO8601 (e.g. 2026-03-01)"),
+    date_to: Optional[str] = Query(None, description="End date ISO8601 (e.g. 2026-03-31)"),
+    price_min: Optional[int] = Query(None, ge=0, description="Minimum price in HKD"),
+    price_max: Optional[int] = Query(None, ge=0, description="Maximum price in HKD"),
+    is_free: Optional[bool] = Query(None, description="Filter free events only"),
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
-) -> EventFeedResponse:
+) -> CursorPage[EventResponse]:
     """
-    Get paginated event feed.
+    Get cursor-paginated event feed.
 
     Supports optional authentication to mark saved events.
-    Filter by categories (comma-separated) and time window.
+    Filter by categories, time window, date range, and price.
     """
-    user_id = current_user.id if current_user else None
-    return await event_service.get_event_feed(
+    # Build the query
+    query = event_service.build_event_feed_query(
         db=db,
-        user_id=user_id,
-        page=page,
-        limit=limit,
         categories=categories,
         time_filter=time_filter,
+        date_from=date_from,
+        date_to=date_to,
+        price_min=price_min,
+        price_max=price_max,
+        is_free=is_free,
     )
+
+    # Get saved event IDs for authenticated users
+    user_id = current_user.id if current_user else None
+    saved_ids = set()
+    if user_id:
+        saved_ids = event_service._get_saved_event_ids(db, user_id)
+
+    # Create transformer that marks saved events
+    def transform_items(items: list[Event]) -> list[EventResponse]:
+        return [
+            event_service._format_event(e, is_saved=(e.id in saved_ids))
+            for e in items
+        ]
+
+    # Apply cursor pagination
+    result = paginate(
+        db,
+        query,
+        params=CursorParams(size=size, cursor=cursor),
+        transformer=transform_items,
+    )
+    return result
 
 
 @router.get(

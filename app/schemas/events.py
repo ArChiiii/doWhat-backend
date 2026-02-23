@@ -36,11 +36,17 @@ class EventResponse(BaseModel):
 
 
 class EventFeedResponse(BaseModel):
+    """Legacy offset-based pagination response (deprecated - use CursorPage[EventResponse] instead)"""
     events: list[EventResponse]
     count: int
     total: int
     page: int = 1
     hasMore: bool = False
+
+
+class CursorEventFeedResponse(BaseModel):
+    """Response metadata for cursor-paginated feed (wrapped by CursorPage)."""
+    pass  # fastapi-pagination handles the pagination wrapper automatically
 
 
 class MapEventsResponse(BaseModel):
