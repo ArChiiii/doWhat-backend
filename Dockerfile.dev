@@ -24,5 +24,6 @@ COPY . .
 EXPOSE 8000 5678
 
 # Development server with auto-reload
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "./app", "--reload-exclude", "**/__pycache__/**"]
+# Exclude tests directory from watchfiles to avoid WSL2 I/O errors
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "./app", "--reload-exclude", "**/__pycache__/**", "--reload-exclude", "**/tests/**"]
 
